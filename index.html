@@ -1,0 +1,2231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#d97706" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Chipas y Chipitas - Comandas POS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Google Identity Services (carga asíncrona segura, no bloquea modo offline) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    * {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      overscroll-behavior-y: contain;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* =====================================================================
+       ESTILOS DE IMPRESIÓN TÉRMICA 80 MM
+       ===================================================================== */
+    #thermal-ticket-area {
+      display: none;
+    }
+
+    @media print {
+      @page {
+        size: 80mm auto;
+        margin: 0mm;
+      }
+
+      html, body {
+        width: 80mm;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+      }
+
+      #app-shell {
+        display: none !important;
+      }
+
+      #thermal-ticket-area {
+        display: block !important;
+        width: 74mm;
+        margin: 0 auto;
+        padding: 3mm 1mm 8mm 1mm;
+        font-family: 'Courier New', Courier, monospace;
+        color: #000000 !important;
+        background: #ffffff !important;
+      }
+
+      .ticket-cut-line {
+        border-top: 2px dashed #000000;
+        margin: 6mm 0;
+        padding-top: 2mm;
+        text-align: center;
+        font-size: 11px;
+        font-weight: bold;
+      }
+    }
+  </style>
+</head>
+<body class="bg-amber-50 text-stone-900 select-none">
+
+  <!-- =====================================================================
+       ÁREA EXCLUSIVA PARA IMPRESIÓN TÉRMICA 80 MM
+       ===================================================================== -->
+  <div id="thermal-ticket-area"></div>
+
+  <!-- =====================================================================
+       INTERFAZ PRINCIPAL DE LA APP (MOBILE-FIRST)
+       ===================================================================== -->
+  <div id="app-shell" class="min-h-screen flex flex-col max-w-lg mx-auto bg-amber-50 shadow-xl relative">
+
+    <!-- HEADER COMPACTO -->
+    <header class="bg-amber-600 text-white px-4 py-3 shadow-md sticky top-0 z-30 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-10 h-10 rounded-xl bg-amber-500 border-2 border-amber-200 flex items-center justify-center text-2xl shadow-inner">
+          🧀
+        </div>
+        <div>
+          <h1 class="font-black text-base leading-tight tracking-tight">CHIPAS Y CHIPITAS</h1>
+          <p class="text-[11px] font-semibold text-amber-100 flex items-center gap-1.5">
+            <span id="save-status-dot" class="inline-block w-2 h-2 rounded-full bg-emerald-300"></span>
+            <span id="save-status-text">Offline Listo</span> • Orden: <span id="header-next-order" class="font-mono font-extrabold text-white bg-amber-800/60 px-1.5 py-0.5 rounded">#001</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5">
+        <!-- Botón Google Drive Sync -->
+        <button type="button" onclick="openDriveModal()" id="header-drive-btn" class="p-2.5 rounded-xl bg-amber-700/80 active:bg-amber-800 text-amber-50 border border-amber-500/40 flex items-center gap-1 text-xs font-bold" title="Sincronizar con Google Drive">
+          <span>☁️</span>
+          <span id="drive-status-badge" class="hidden sm:inline">Drive</span>
+        </button>
+
+        <!-- Botón rápido de configuración de impresión -->
+        <button type="button" onclick="openSettingsModal()" class="p-2.5 rounded-xl bg-amber-700/80 active:bg-amber-800 text-amber-50 border border-amber-500/40 flex items-center gap-1 text-xs font-bold" title="Configuración de Impresora">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+          <span id="print-mode-badge">80mm</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- NAVEGACIÓN PRINCIPAL (3 PESTAÑAS GRANDES) -->
+    <nav class="bg-white border-b border-amber-200 px-2 py-1.5 grid grid-cols-3 gap-1.5 sticky top-[64px] z-20 shadow-xs">
+      <button type="button" id="tab-btn-vender" onclick="switchTab('vender')" class="py-2.5 px-2 rounded-xl text-xs font-extrabold bg-amber-500 text-stone-950 shadow-sm flex items-center justify-center gap-1">
+        <span>🛒</span> Vender
+      </button>
+      <button type="button" id="tab-btn-comandas" onclick="switchTab('comandas')" class="py-2.5 px-2 rounded-xl text-xs font-bold text-stone-600 flex items-center justify-center gap-1">
+        <span>🧾</span> Comandas <span id="badge-orders-count" class="bg-stone-200 text-stone-800 px-1.5 py-0.2 rounded-full text-[10px] font-black">0</span>
+      </button>
+      <button type="button" id="tab-btn-productos" onclick="switchTab('productos')" class="py-2.5 px-2 rounded-xl text-xs font-bold text-stone-600 flex items-center justify-center gap-1">
+        <span>⚙️</span> Productos
+      </button>
+    </nav>
+
+    <!-- ===================================================================
+         PESTAÑA 1: VENDER (TOMA DE PEDIDO RÁPIDA EN MOSTRADOR)
+         =================================================================== -->
+    <main id="view-vender" class="flex-1 pb-28">
+      <!-- Barra horizontal de Categorías -->
+      <div id="category-bar" class="px-3 py-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar bg-amber-50/95 border-b border-amber-200/80 sticky top-[112px] z-10">
+        <!-- Se inyecta por JS -->
+      </div>
+
+      <!-- Grilla de Productos (2 columnas grandes para operar con el pulgar) -->
+      <div id="products-grid" class="p-3 grid grid-cols-2 gap-2.5">
+        <!-- Se inyecta por JS -->
+      </div>
+
+      <!-- Mensaje cuando no hay productos activos en la categoría -->
+      <div id="empty-products-msg" class="hidden px-6 py-12 text-center space-y-2">
+        <div class="text-4xl">🧀</div>
+        <p class="font-extrabold text-stone-800 text-sm">No hay productos activos acá</p>
+        <p class="text-xs text-stone-500">Podés agregar nuevos o reactivarlos en la pestaña <strong>Productos</strong>.</p>
+      </div>
+    </main>
+
+    <!-- ===================================================================
+         PESTAÑA 2: COMANDAS Y CIERRE DE CAJA
+         =================================================================== -->
+    <section id="view-comandas" class="hidden flex-1 p-3 pb-24 space-y-3">
+      <!-- Resumen de Caja del Turno -->
+      <div class="bg-stone-900 text-white p-4 rounded-2xl shadow-md space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-extrabold uppercase tracking-wider text-amber-400">Resumen del Turno</span>
+          <div class="flex gap-1.5">
+            <button type="button" onclick="exportOrdersCSV()" class="px-2.5 py-1.5 bg-emerald-600 active:bg-emerald-700 text-white font-extrabold rounded-lg text-[11px]">
+              📊 CSV Excel
+            </button>
+            <button type="button" onclick="openResetShiftModal()" class="px-2.5 py-1.5 bg-red-900/80 active:bg-red-800 text-red-200 font-extrabold rounded-lg text-[11px]">
+              🔄 Nuevo Turno
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="bg-stone-800 p-2.5 rounded-xl">
+            <p class="text-[10px] font-bold text-stone-400 uppercase">Total Caja</p>
+            <p id="summary-total-sales" class="font-black text-base text-amber-400">$0</p>
+          </div>
+          <div class="bg-stone-800 p-2.5 rounded-xl">
+            <p class="text-[10px] font-bold text-stone-400 uppercase">💵 Efectivo</p>
+            <p id="summary-cash-sales" class="font-black text-sm text-emerald-400">$0</p>
+          </div>
+          <div class="bg-stone-800 p-2.5 rounded-xl">
+            <p class="text-[10px] font-bold text-stone-400 uppercase">📱 Transf/QR</p>
+            <p id="summary-transfer-sales" class="font-black text-sm text-sky-400">$0</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Listado de Comandas Emitidas -->
+      <div id="orders-history-list" class="space-y-2.5">
+        <!-- Se inyecta por JS -->
+      </div>
+    </section>
+
+    <!-- ===================================================================
+         PESTAÑA 3: PRODUCTOS, FOTOS Y GOOGLE DRIVE / RESPALDOS
+         =================================================================== -->
+    <section id="view-productos" class="hidden flex-1 p-3 pb-24 space-y-4">
+      <!-- Barra de Herramientas: Google Drive, Categorías y Descarga -->
+      <div class="bg-stone-900 text-white p-3.5 rounded-2xl shadow-sm space-y-2.5">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-xs font-black text-amber-400 uppercase">Sincronización y Carta</p>
+            <p id="drive-panel-subtitle" class="text-[11px] text-stone-300">Guardado offline local + Sync Google Drive al tener Wi-Fi</p>
+          </div>
+          <button type="button" onclick="openCategoriesModal()" class="px-3 py-2 bg-amber-500 active:bg-amber-600 text-stone-950 font-black rounded-xl text-xs shadow flex items-center gap-1">
+            <span>🏷️</span> Categorías
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 pt-1 border-t border-stone-700">
+          <button type="button" onclick="openDriveModal()" class="py-2.5 px-3 bg-sky-900/80 active:bg-sky-800 text-sky-200 border border-sky-600 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5">
+            <span>☁️</span> Google Drive Auto
+          </button>
+          <button type="button" onclick="downloadStandaloneHTML()" class="py-2.5 px-3 bg-emerald-900/80 active:bg-emerald-800 text-emerald-200 border border-emerald-600 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5">
+            <span>📲</span> Bajar App (.html)
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" onclick="exportBackupJSON()" class="py-2 px-3 bg-stone-800 active:bg-stone-700 text-stone-200 border border-stone-600 font-bold rounded-xl text-[11px] flex items-center justify-center gap-1.5">
+            <span>💾</span> Exportar Datos (.json)
+          </button>
+          <label class="py-2 px-3 bg-stone-800 active:bg-stone-700 text-amber-200 border border-stone-600 font-bold rounded-xl text-[11px] flex items-center justify-center gap-1.5 cursor-pointer">
+            <span>📂</span> Importar Datos (.json)
+            <input type="file" accept=".json,application/json" onchange="importBackupJSON(event)" class="hidden" />
+          </label>
+        </div>
+      </div>
+
+      <!-- Formulario Agregar Producto Rápido con Foto -->
+      <div class="bg-white p-4 rounded-2xl border-2 border-amber-300 shadow-sm">
+        <h2 class="font-black text-stone-900 text-base mb-3 flex items-center gap-2">
+          <span class="bg-amber-500 text-stone-950 w-6 h-6 rounded-lg flex items-center justify-center text-sm font-black">+</span>
+          Agregar Producto Nuevo
+        </h2>
+        <form id="add-product-form" onsubmit="handleAddProduct(event)" class="space-y-3">
+          
+          <!-- Selector de Foto (Cámara o Galería) -->
+          <div class="flex items-center gap-3 bg-amber-50/80 p-2.5 rounded-xl border border-amber-200">
+            <div id="new-prod-photo-preview" class="w-16 h-16 rounded-xl bg-amber-100 border-2 border-dashed border-amber-400 flex items-center justify-center text-2xl shrink-0 overflow-hidden">
+              📸
+            </div>
+            <div class="flex-1 space-y-1.5">
+              <p class="text-xs font-extrabold text-stone-800">Foto del producto (Opcional)</p>
+              <div class="flex flex-wrap gap-1.5">
+                <label class="px-2.5 py-1.5 bg-amber-600 active:bg-amber-700 text-white font-extrabold rounded-lg text-[11px] cursor-pointer flex items-center gap-1">
+                  <span>📷</span> Cámara / Galería
+                  <input type="file" id="new-prod-photo-input" accept="image/*" onchange="handlePhotoUpload(event, 'new')" class="hidden" />
+                </label>
+                <button type="button" id="new-prod-photo-clear" onclick="clearPhotoSelection('new')" class="hidden px-2.5 py-1.5 bg-red-100 text-red-700 font-extrabold rounded-lg text-[11px]">
+                  Quitar
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-extrabold text-stone-600 uppercase mb-1">Nombre y presentación</label>
+            <input type="text" id="new-prod-name" required placeholder="Ej: Chipá 1/4 kg o Jugo Naranja" class="w-full px-3.5 py-2.5 rounded-xl border-2 border-stone-300 focus:border-amber-500 focus:outline-none font-bold text-stone-900 text-base" />
+          </div>
+          
+          <div class="grid grid-cols-2 gap-2.5">
+            <div>
+              <label class="block text-xs font-extrabold text-stone-600 uppercase mb-1">Precio ($ ARS)</label>
+              <input type="number" id="new-prod-price" required min="1" step="1" inputmode="numeric" placeholder="3500" class="w-full px-3.5 py-2.5 rounded-xl border-2 border-stone-300 focus:border-amber-500 focus:outline-none font-black text-stone-900 text-base" />
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs font-extrabold text-stone-600 uppercase">Categoría</label>
+                <button type="button" onclick="openCategoriesModal()" class="text-[11px] font-black text-amber-700 underline">+ Nueva</button>
+              </div>
+              <select id="new-prod-cat" class="w-full px-3 py-2.5 rounded-xl border-2 border-stone-300 focus:border-amber-500 focus:outline-none font-bold text-stone-900 text-sm bg-white">
+                <!-- Opciones dinámicas -->
+              </select>
+            </div>
+          </div>
+
+          <button type="submit" class="w-full py-3 bg-amber-600 active:bg-amber-700 text-white font-black rounded-xl text-sm shadow-md tracking-wide uppercase">
+            Guardar Producto
+          </button>
+        </form>
+      </div>
+
+      <!-- Lista de Productos Existentes -->
+      <div>
+        <div class="flex items-center justify-between px-1 mb-2">
+          <h2 class="font-black text-stone-800 text-sm uppercase tracking-wide">Catálogo Actual (<span id="catalog-total-count">0</span>)</h2>
+          <span class="text-xs font-bold text-stone-500">Tocá para editar foto/precio</span>
+        </div>
+        <div id="manage-products-list" class="space-y-2.5">
+          <!-- Se inyecta por JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================
+         BARRA INFERIOR FIJA DE COBRO (STICKY BOTTOM BAR)
+         =================================================================== -->
+    <div id="sticky-checkout-bar" class="hidden fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-stone-900 text-white px-3.5 py-3 shadow-2xl border-t-2 border-amber-500 z-30 flex items-center justify-between gap-2.5">
+      <button type="button" onclick="clearCart()" class="p-3 rounded-xl bg-stone-800 active:bg-red-900 text-stone-300 hover:text-white border border-stone-700" title="Vaciar Pedido">
+        🗑️
+      </button>
+
+      <div class="flex-1 min-w-0">
+        <p class="text-[11px] font-bold text-amber-400 uppercase"><span id="sticky-items-count">0</span> ítem(s) en pedido</p>
+        <p id="sticky-total-price" class="font-black text-xl leading-tight text-white truncate">$0</p>
+      </div>
+
+      <button type="button" onclick="openCheckoutModal()" class="px-5 py-3.5 rounded-2xl bg-emerald-500 active:bg-emerald-600 text-stone-950 font-black text-sm uppercase tracking-wide shadow-lg flex items-center gap-1.5 shrink-0">
+        <span>Cobrar</span>
+        <span>➔</span>
+      </button>
+    </div>
+
+    <!-- ===================================================================
+         MODAL SINCRONIZACIÓN AUTOMÁTICA CON GOOGLE DRIVE
+         =================================================================== -->
+    <div id="drive-modal" class="hidden fixed inset-0 z-50 bg-stone-950/80 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-stone-200 pb-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">☁️</span>
+            <h3 class="font-black text-lg text-stone-900">Sincronizar con Google Drive</h3>
+          </div>
+          <button type="button" onclick="closeDriveModal()" class="w-8 h-8 rounded-lg bg-stone-100 font-bold">✕</button>
+        </div>
+
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-xs text-stone-700 space-y-1.5">
+          <p class="font-extrabold text-amber-900">¿Cómo funciona en el stand?</p>
+          <p>• <strong>Sin Wi-Fi:</strong> Seguís vendiendo y editando productos normal; todo se guarda en una cola pendiente en el celular.</p>
+          <p>• <strong>Con Wi-Fi:</strong> Apenas vuelve la señal, la app sube y actualiza automáticamente el archivo <code>chipas_y_chipitas_pos_datos.json</code> en tu Google Drive.</p>
+        </div>
+
+        <!-- Estado actual de conexión Drive -->
+        <div id="drive-connection-box" class="bg-stone-100 p-3.5 rounded-2xl border border-stone-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold text-stone-600 uppercase">Estado Drive:</span>
+            <span id="drive-modal-status" class="text-xs font-black text-amber-700">No vinculado</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold text-stone-600 uppercase">Última subida:</span>
+            <span id="drive-last-sync-text" class="text-xs font-bold text-stone-700">Nunca</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold text-stone-600 uppercase">Cambios pendientes:</span>
+            <span id="drive-pending-badge" class="text-xs font-black text-emerald-700">Al día ✓</span>
+          </div>
+        </div>
+
+        <!-- Configuración OAuth Client ID (necesario si se abre desde archivo/web propia) -->
+        <div class="space-y-2">
+          <label class="block text-xs font-extrabold text-stone-700 uppercase">
+            Google Client ID (OAuth Web)
+          </label>
+          <input type="text" id="google-client-id-input" placeholder="Ej: 123456789-abc.apps.googleusercontent.com" class="w-full px-3 py-2.5 rounded-xl border-2 border-stone-300 focus:border-sky-500 focus:outline-none text-xs font-mono text-stone-900" />
+          <p class="text-[11px] text-stone-500 leading-snug">
+            Para conectar directo con tu cuenta de Google Drive desde tu web/hosting (ej. Netlify o GitHub Pages), pegá tu Client ID gratuito de Google Cloud Console (con el permiso <code>drive.file</code>).
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-2 pt-1">
+          <button type="button" onclick="connectGoogleDrive()" class="w-full py-3.5 bg-sky-600 active:bg-sky-700 text-white font-black rounded-2xl text-xs uppercase tracking-wide shadow flex items-center justify-center gap-2">
+            <span>🔗</span> Conectar Cuenta Google Drive
+          </button>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="forceSyncToDrive(true)" class="py-2.5 px-3 bg-emerald-600 active:bg-emerald-700 text-white font-extrabold rounded-xl text-xs">
+              ⬆️ Subir Ahora
+            </button>
+            <button type="button" onclick="pullFromGoogleDrive()" class="py-2.5 px-3 bg-stone-800 active:bg-stone-700 text-amber-300 font-extrabold rounded-xl text-xs">
+              ⬇️ Traer de Drive
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL DE COBRO Y CONFIRMACIÓN DE COMANDA
+         =================================================================== -->
+    <div id="checkout-modal" class="hidden fixed inset-0 z-50 bg-stone-950/80 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-stone-200 pb-2.5">
+          <div>
+            <span class="text-[11px] font-black uppercase text-amber-700">Confirmar Comanda</span>
+            <h3 class="font-black text-xl text-stone-900">Orden <span id="checkout-order-num" class="text-amber-600">#001</span></h3>
+          </div>
+          <button type="button" onclick="closeCheckoutModal()" class="w-9 h-9 rounded-xl bg-stone-100 font-black text-stone-700">✕</button>
+        </div>
+
+        <!-- Resumen de Ítems -->
+        <div id="checkout-items-list" class="bg-amber-50/70 rounded-2xl p-3 border border-amber-200 space-y-1.5 max-h-40 overflow-y-auto">
+          <!-- Se inyecta por JS -->
+        </div>
+
+        <!-- Nombre del Cliente -->
+        <div>
+          <label class="block text-xs font-extrabold text-stone-600 uppercase mb-1">Nombre del Cliente (Opcional)</label>
+          <input type="text" id="customer-name-input" placeholder="Ej: MARTÍN / MESA 4" class="w-full px-3.5 py-2.5 rounded-xl border-2 border-stone-300 focus:border-amber-500 focus:outline-none font-extrabold uppercase text-stone-900 text-sm" />
+        </div>
+
+        <!-- Medio de Pago -->
+        <div>
+          <label class="block text-xs font-extrabold text-stone-600 uppercase mb-1.5">Medio de Pago</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" id="pay-btn-Efectivo" onclick="selectPaymentMethod('Efectivo')" class="py-3 rounded-xl font-black text-sm border-2 bg-emerald-600 text-white border-emerald-700 shadow-xs">
+              💵 Efectivo
+            </button>
+            <button type="button" id="pay-btn-Transferencia" onclick="selectPaymentMethod('Transferencia')" class="py-3 rounded-xl font-black text-sm border-2 bg-stone-100 text-stone-700 border-stone-300">
+              📱 Transf / QR
+            </button>
+          </div>
+        </div>
+
+        <!-- Calculadora de Vuelto -->
+        <div id="cash-calculator-box" class="bg-stone-100 p-3 rounded-2xl border border-stone-200 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <label class="text-xs font-extrabold text-stone-700">Paga con ($):</label>
+            <input type="number" id="cash-given-input" oninput="calculateChange()" inputmode="numeric" placeholder="Monto recibido" class="w-36 px-3 py-1.5 rounded-xl border-2 border-stone-300 bg-white font-black text-right text-stone-900 text-base focus:border-emerald-500 focus:outline-none" />
+          </div>
+
+          <!-- Botones rápidos de billetes argentinos -->
+          <div class="grid grid-cols-6 gap-1">
+            <button type="button" onclick="setCashBill('exact')" class="py-2 bg-white border border-stone-300 rounded-lg font-extrabold text-[10px] text-stone-800 active:bg-amber-100">Exacto</button>
+            <button type="button" onclick="setCashBill(1000)" class="py-2 bg-white border border-stone-300 rounded-lg font-extrabold text-[10px] text-stone-800 active:bg-amber-100">$1mil</button>
+            <button type="button" onclick="setCashBill(2000)" class="py-2 bg-white border border-stone-300 rounded-lg font-extrabold text-[10px] text-stone-800 active:bg-amber-100">$2mil</button>
+            <button type="button" onclick="setCashBill(5000)" class="py-2 bg-white border border-stone-300 rounded-lg font-extrabold text-[10px] text-stone-800 active:bg-amber-100">$5mil</button>
+            <button type="button" onclick="setCashBill(10000)" class="py-2 bg-white border border-stone-300 rounded-lg font-extrabold text-[10px] text-stone-800 active:bg-amber-100">$10mil</button>
+            <button type="button" onclick="setCashBill(20000)" class="py-2 bg-white border border-stone-300 rounded-lg font-extrabold text-[10px] text-stone-800 active:bg-amber-100">$20mil</button>
+          </div>
+
+          <div class="flex items-center justify-between pt-1 border-t border-stone-200">
+            <span class="text-xs font-extrabold text-stone-600 uppercase">Vuelto a entregar:</span>
+            <span id="cash-change-display" class="font-black text-lg text-emerald-700">$0</span>
+          </div>
+        </div>
+
+        <!-- Total Final y Botón Confirmar -->
+        <div class="pt-1 space-y-2.5">
+          <div class="flex items-center justify-between px-1">
+            <span class="font-extrabold text-stone-600 text-sm uppercase">Total a Cobrar</span>
+            <span id="checkout-total-display" class="font-black text-2xl text-stone-900">$0</span>
+          </div>
+
+          <button type="button" onclick="confirmSale()" class="w-full py-4 rounded-2xl bg-emerald-500 active:bg-emerald-600 text-stone-950 font-black text-base uppercase tracking-wide shadow-lg flex items-center justify-center gap-2">
+            <span>🖨️</span> Confirmar e Imprimir Ticket
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL COMANDA GENERADA (REIMPRESIÓN RÁPIDA)
+         =================================================================== -->
+    <div id="ticket-success-modal" class="hidden fixed inset-0 z-50 bg-stone-950/80 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-center space-y-4">
+        <div class="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center text-4xl font-black">
+          ✓
+        </div>
+        <div>
+          <p class="text-xs font-extrabold uppercase text-stone-500">Comanda Registrada</p>
+          <h3 id="success-order-num" class="font-black text-4xl text-stone-900 my-1">#001</h3>
+          <p id="success-order-summary" class="text-sm font-bold text-amber-800">$0 • Efectivo</p>
+        </div>
+
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-xs font-bold text-amber-950">
+          ⬅️ Recordarle al cliente retirar por la <strong>izquierda</strong>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button type="button" onclick="reprintLastOrder()" class="py-3.5 px-3 bg-stone-900 active:bg-stone-800 text-amber-400 font-black rounded-2xl text-xs uppercase flex items-center justify-center gap-1.5">
+            <span>🖨️</span> Reimprimir
+          </button>
+          <button type="button" onclick="closeSuccessModal()" class="py-3.5 px-3 bg-emerald-500 active:bg-emerald-600 text-stone-950 font-black rounded-2xl text-xs uppercase">
+            Nuevo Pedido ➔
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL CONFIGURACIÓN DE IMPRESORA TÉRMICA 80 MM
+         =================================================================== -->
+    <div id="settings-modal" class="hidden fixed inset-0 z-50 bg-stone-950/80 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-stone-200 pb-2.5">
+          <h3 class="font-black text-lg text-stone-900">🖨️ Impresora Térmica 80mm</h3>
+          <button type="button" onclick="closeSettingsModal()" class="w-8 h-8 rounded-lg bg-stone-100 font-bold">✕</button>
+        </div>
+
+        <p class="text-xs text-stone-600 font-medium">Elegí cómo se dispara el ticket al confirmar cada venta:</p>
+
+        <div class="space-y-2">
+          <label class="flex items-start gap-3 p-3 rounded-2xl border-2 border-stone-200 cursor-pointer has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
+            <input type="radio" name="autoPrintMode" value="browser" onchange="savePrintMode('browser')" class="mt-1 accent-amber-600" />
+            <div>
+              <p class="font-extrabold text-sm text-stone-900">Impresión Estándar (80mm)</p>
+              <p class="text-[11px] text-stone-500">Abre el diálogo de impresión del celular (Android / iPhone / AirPrint).</p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 p-3 rounded-2xl border-2 border-stone-200 cursor-pointer has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
+            <input type="radio" name="autoPrintMode" value="rawbt" onchange="savePrintMode('rawbt')" class="mt-1 accent-amber-600" />
+            <div>
+              <p class="font-extrabold text-sm text-stone-900">Directo a RawBT (Android BT/USB)</p>
+              <p class="text-[11px] text-stone-500">Envía el ticket directo a la app RawBT sin cuadros de diálogo y con corte automático.</p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 p-3 rounded-2xl border-2 border-stone-200 cursor-pointer has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
+            <input type="radio" name="autoPrintMode" value="manual" onchange="savePrintMode('manual')" class="mt-1 accent-amber-600" />
+            <div>
+              <p class="font-extrabold text-sm text-stone-900">Solo Pantalla (Manual)</p>
+              <p class="text-[11px] text-stone-500">Guarda la comanda sin imprimir automáticamente (podés imprimir luego).</p>
+            </div>
+          </label>
+        </div>
+
+        <button type="button" onclick="closeSettingsModal()" class="w-full py-3 bg-stone-900 text-amber-400 font-black rounded-xl text-sm">
+          Listo
+        </button>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL CONFIRMAR NUEVO TURNO (REINICIO DE CONTADOR)
+         =================================================================== -->
+    <div id="reset-shift-modal" class="hidden fixed inset-0 z-50 bg-stone-950/80 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 text-center">
+        <div class="text-4xl">🔄</div>
+        <h3 class="font-black text-lg text-stone-900">¿Iniciar un Nuevo Turno?</h3>
+        <p class="text-xs text-stone-600">Se borrarán las comandas actuales y el contador volverá a <strong>#001</strong>. Tus productos, precios, fotos y categorías se mantienen intactos. Te recomendamos descargar el <strong>CSV Excel</strong> antes.</p>
+        <div class="grid grid-cols-2 gap-2 pt-2">
+          <button type="button" onclick="closeResetShiftModal()" class="py-3 bg-stone-100 text-stone-800 font-extrabold rounded-xl text-xs">Cancelar</button>
+          <button type="button" onclick="confirmResetShift()" class="py-3 bg-red-600 text-white font-black rounded-xl text-xs">Sí, Reiniciar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL EDICIÓN RÁPIDA DE PRODUCTO (CON FOTO)
+         =================================================================== -->
+    <div id="edit-product-modal" class="hidden fixed inset-0 z-50 bg-stone-950/75 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-stone-200 pb-2">
+          <h3 class="font-black text-lg text-stone-900">✏️ Editar Producto</h3>
+          <button type="button" onclick="closeEditProductModal()" class="w-8 h-8 rounded-lg bg-stone-100 font-bold">✕</button>
+        </div>
+        <form onsubmit="saveEditedProduct(event)" class="space-y-3">
+          <input type="hidden" id="edit-prod-id">
+
+          <!-- Foto en Edición -->
+          <div class="flex items-center gap-3 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+            <div id="edit-prod-photo-preview" class="w-16 h-16 rounded-xl bg-amber-100 border-2 border-dashed border-amber-400 flex items-center justify-center text-2xl shrink-0 overflow-hidden">
+              📸
+            </div>
+            <div class="flex-1 space-y-1.5">
+              <p class="text-xs font-extrabold text-stone-800">Foto del producto</p>
+              <div class="flex flex-wrap gap-1.5">
+                <label class="px-2.5 py-1.5 bg-amber-600 text-white font-extrabold rounded-lg text-[11px] cursor-pointer flex items-center gap-1">
+                  <span>📷</span> Cambiar Foto
+                  <input type="file" id="edit-prod-photo-input" accept="image/*" onchange="handlePhotoUpload(event, 'edit')" class="hidden" />
+                </label>
+                <button type="button" id="edit-prod-photo-clear" onclick="clearPhotoSelection('edit')" class="hidden px-2.5 py-1.5 bg-red-100 text-red-700 font-extrabold rounded-lg text-[11px]">
+                  Quitar
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-extrabold text-stone-600 uppercase mb-1">Nombre</label>
+            <input type="text" id="edit-prod-name" required class="w-full px-3.5 py-2.5 rounded-xl border-2 border-stone-300 font-bold text-stone-900">
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs font-extrabold text-stone-600 uppercase mb-1">Precio ($)</label>
+              <input type="number" id="edit-prod-price" required min="1" inputmode="numeric" class="w-full px-3.5 py-2.5 rounded-xl border-2 border-stone-300 font-black text-stone-900">
+            </div>
+            <div>
+              <label class="block text-xs font-extrabold text-stone-600 uppercase mb-1">Categoría</label>
+              <select id="edit-prod-cat" class="w-full px-3 py-2.5 rounded-xl border-2 border-stone-300 font-bold text-stone-900 bg-white">
+                <!-- Opciones dinámicas -->
+              </select>
+            </div>
+          </div>
+          <div class="flex gap-2 pt-2">
+            <button type="button" onclick="deleteCurrentEditingProduct()" class="px-4 py-3 bg-red-100 text-red-700 font-extrabold rounded-xl text-xs">Eliminar</button>
+            <button type="submit" class="flex-1 py-3 bg-amber-600 text-white font-black rounded-xl text-sm">Guardar Cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL GESTIÓN COMPLETA DE CATEGORÍAS
+         =================================================================== -->
+    <div id="categories-modal" class="hidden fixed inset-0 z-50 bg-stone-950/80 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl flex flex-col max-h-[88vh]">
+        <div class="flex items-center justify-between border-b border-stone-200 pb-3 shrink-0">
+          <h3 class="font-black text-lg text-stone-900">🏷️ Gestionar Categorías</h3>
+          <button type="button" onclick="closeCategoriesModal()" class="w-9 h-9 rounded-xl bg-stone-100 font-black">✕</button>
+        </div>
+
+        <!-- Formulario Crear Nueva Categoría -->
+        <form onsubmit="handleAddCategory(event)" class="py-3 border-b border-stone-200 space-y-2.5 shrink-0">
+          <p class="text-xs font-extrabold uppercase text-amber-800">Nueva Categoría</p>
+          <div class="flex gap-2">
+            <input type="text" id="new-cat-emoji" value="🧀" maxlength="4" class="w-14 text-center text-xl px-2 py-2 rounded-xl border-2 border-stone-300 font-bold bg-amber-50" title="Emoji o ícono" />
+            <input type="text" id="new-cat-name" required placeholder="Ej: Combos, Cafetería, Sin TACC..." class="flex-1 px-3 py-2 rounded-xl border-2 border-stone-300 font-bold text-sm text-stone-900 focus:border-amber-500 focus:outline-none" />
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-1.5" id="cat-color-picker">
+              <button type="button" onclick="selectNewCatColor('amber')" data-color="amber" class="cat-color-btn w-7 h-7 rounded-full bg-amber-500 ring-2 ring-offset-2 ring-stone-900"></button>
+              <button type="button" onclick="selectNewCatColor('orange')" data-color="orange" class="cat-color-btn w-7 h-7 rounded-full bg-orange-600"></button>
+              <button type="button" onclick="selectNewCatColor('emerald')" data-color="emerald" class="cat-color-btn w-7 h-7 rounded-full bg-emerald-600"></button>
+              <button type="button" onclick="selectNewCatColor('sky')" data-color="sky" class="cat-color-btn w-7 h-7 rounded-full bg-sky-600"></button>
+              <button type="button" onclick="selectNewCatColor('rose')" data-color="rose" class="cat-color-btn w-7 h-7 rounded-full bg-rose-600"></button>
+              <button type="button" onclick="selectNewCatColor('purple')" data-color="purple" class="cat-color-btn w-7 h-7 rounded-full bg-purple-600"></button>
+            </div>
+            <button type="submit" class="px-4 py-2 bg-stone-900 active:bg-stone-800 text-amber-400 font-black rounded-xl text-xs uppercase">
+              + Agregar
+            </button>
+          </div>
+        </form>
+
+        <!-- Lista de Categorías Existentes -->
+        <div id="categories-manage-list" class="py-3 overflow-y-auto space-y-2 flex-1">
+          <!-- Se inyecta por JS -->
+        </div>
+
+        <button type="button" onclick="closeCategoriesModal()" class="w-full py-3 bg-amber-600 text-white font-black rounded-xl text-sm shrink-0 mt-2">
+          Listo
+        </button>
+      </div>
+    </div>
+
+    <!-- MODAL RENOMBRAR CATEGORÍA -->
+    <div id="rename-cat-modal" class="hidden fixed inset-0 z-50 bg-stone-950/80 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-xs rounded-3xl p-5 shadow-2xl space-y-3">
+        <h3 class="font-black text-base text-stone-900">✏️ Renombrar Categoría</h3>
+        <input type="hidden" id="rename-cat-id" />
+        <input type="text" id="rename-cat-input" class="w-full px-3.5 py-2.5 rounded-xl border-2 border-stone-300 font-bold text-stone-900 focus:border-amber-500 focus:outline-none" />
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button type="button" onclick="closeRenameCatModal()" class="py-2.5 bg-stone-100 text-stone-700 font-extrabold rounded-xl text-xs">Cancelar</button>
+          <button type="button" onclick="confirmRenameCategory()" class="py-2.5 bg-amber-600 text-white font-black rounded-xl text-xs">Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL COPIAR CÓDIGO HTML (FALLBACK SI EL NAVEGADOR BLOQUEA DESCARGA) -->
+    <div id="copy-html-modal" class="hidden fixed inset-0 z-50 bg-stone-950/85 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl space-y-3">
+        <div class="flex items-center justify-between border-b border-stone-200 pb-2">
+          <h3 class="font-black text-base text-stone-900">📋 Copiar Código de la App</h3>
+          <button type="button" onclick="document.getElementById('copy-html-modal').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-stone-100 font-bold">✕</button>
+        </div>
+        <p class="text-xs text-stone-600 leading-relaxed">
+          Esta vista previa bloquea las descargas automáticas. Tocá <strong>Copiar Todo</strong>, pegalo en el Bloc de Notas o un editor de texto y guardalo como <code>index.html</code> (o usá el botón <strong>Copiar</strong> arriba en la pestaña de código).
+        </p>
+        <textarea id="raw-html-textarea" readonly rows="6" class="w-full p-2.5 rounded-xl border border-stone-300 bg-stone-50 font-mono text-[10px] text-stone-800"></textarea>
+        <button type="button" onclick="copyRawHTMLToClipboard()" class="w-full py-3.5 bg-emerald-600 active:bg-emerald-700 text-white font-black rounded-2xl text-sm uppercase shadow">
+          📋 Copiar Todo el Código
+        </button>
+      </div>
+    </div>
+
+    <!-- TOAST NOTIFICACIÓN NO INVASIVO -->
+    <div id="toast-notification" class="hidden fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-stone-900 text-amber-300 border border-amber-500/40 px-4 py-2 rounded-full shadow-xl text-xs font-extrabold tracking-wide whitespace-nowrap">
+      Mensaje
+    </div>
+
+  </div>
+
+  <!-- =====================================================================
+       LÓGICA COMPLETA OFFLINE-FIRST + GOOGLE DRIVE AUTO-SYNC
+       ===================================================================== -->
+  <script>
+    // ---------------------------------------------------------------------
+    // 1. GESTOR DE SINCRONIZACIÓN AUTOMÁTICA CON GOOGLE DRIVE (OFFLINE-FIRST)
+    // ---------------------------------------------------------------------
+    const DRIVE_CONFIG = {
+      FILE_NAME: 'chipas_y_chipitas_pos_datos.json',
+      SCOPE: 'https://www.googleapis.com/auth/drive.file',
+      META_KEY: 'cyc_gdrive_meta_v1'
+    };
+
+    class GoogleDriveAutoSync {
+      constructor() {
+        this.clientId = '';
+        this.accessToken = null;
+        this.tokenExpiry = 0;
+        this.fileId = null;
+        this.lastSyncAt = null;
+        this.pendingSync = false;
+        this.isSyncing = false;
+        this.tokenClient = null;
+        this.loadMeta();
+      }
+
+      loadMeta() {
+        try {
+          const raw = localStorage.getItem(DRIVE_CONFIG.META_KEY);
+          if (raw) {
+            const meta = JSON.parse(raw);
+            this.clientId = meta.clientId || '';
+            this.fileId = meta.fileId || null;
+            this.lastSyncAt = meta.lastSyncAt || null;
+            this.pendingSync = !!meta.pendingSync;
+          }
+        } catch (e) {
+          console.warn('Error leyendo meta de Drive:', e);
+        }
+      }
+
+      saveMeta() {
+        try {
+          localStorage.setItem(DRIVE_CONFIG.META_KEY, JSON.stringify({
+            clientId: this.clientId,
+            fileId: this.fileId,
+            lastSyncAt: this.lastSyncAt,
+            pendingSync: this.pendingSync
+          }));
+        } catch (e) {
+          console.warn('Error guardando meta de Drive:', e);
+        }
+      }
+
+      setClientId(id) {
+        this.clientId = (id || '').trim();
+        this.saveMeta();
+      }
+
+      isLinked() {
+        return Boolean(this.clientId && (this.fileId || this.accessToken));
+      }
+
+      hasValidToken() {
+        return Boolean(this.accessToken && Date.now() < this.tokenExpiry - 30000);
+      }
+
+      async requestToken(promptMode = '') {
+        if (!this.clientId) return false;
+        if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+          return false;
+        }
+
+        return new Promise((resolve) => {
+          try {
+            this.tokenClient = window.google.accounts.oauth2.initTokenClient({
+              client_id: this.clientId,
+              scope: DRIVE_CONFIG.SCOPE,
+              callback: (tokenResponse) => {
+                if (tokenResponse && tokenResponse.access_token) {
+                  this.accessToken = tokenResponse.access_token;
+                  const expiresIn = parseInt(tokenResponse.expires_in || '3500', 10);
+                  this.tokenExpiry = Date.now() + expiresIn * 1000;
+                  resolve(true);
+                } else {
+                  resolve(false);
+                }
+              },
+              error_callback: () => resolve(false)
+            });
+            this.tokenClient.requestAccessToken({ prompt: promptMode });
+          } catch (e) {
+            console.warn('Error OAuth Drive:', e);
+            resolve(false);
+          }
+        });
+      }
+
+      async findExistingFile() {
+        if (!this.accessToken) return null;
+        const q = encodeURIComponent(`name='${DRIVE_CONFIG.FILE_NAME}' and trashed=false`);
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`, {
+          headers: { Authorization: `Bearer ${this.accessToken}` }
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data.files && data.files.length > 0) {
+          this.fileId = data.files[0].id;
+          this.saveMeta();
+          return this.fileId;
+        }
+        return null;
+      }
+
+      async uploadPayload(payload, interactive = false) {
+        if (this.isSyncing) return false;
+        if (!navigator.onLine || !this.clientId) {
+          this.pendingSync = true;
+          this.saveMeta();
+          updateDriveUI();
+          return false;
+        }
+
+        this.isSyncing = true;
+        updateSaveIndicator('syncing');
+
+        try {
+          if (!this.hasValidToken()) {
+            const ok = await this.requestToken(interactive ? 'consent' : '');
+            if (!ok) {
+              this.pendingSync = true;
+              this.saveMeta();
+              this.isSyncing = false;
+              updateSaveIndicator('offline_pending');
+              updateDriveUI();
+              return false;
+            }
+          }
+
+          if (!this.fileId) {
+            await this.findExistingFile();
+          }
+
+          const metadata = {
+            name: DRIVE_CONFIG.FILE_NAME,
+            mimeType: 'application/json'
+          };
+
+          const boundary = '-------cycposboundary314159';
+          const delimiter = `\r\n--${boundary}\r\n`;
+          const closeDelim = `\r\n--${boundary}--`;
+
+          const multipartBody =
+            delimiter +
+            'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+            JSON.stringify(metadata) +
+            delimiter +
+            'Content-Type: application/json\r\n\r\n' +
+            JSON.stringify(payload) +
+            closeDelim;
+
+          const url = this.fileId
+            ? `https://www.googleapis.com/upload/drive/v3/files/${this.fileId}?uploadType=multipart`
+            : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+
+          const method = this.fileId ? 'PATCH' : 'POST';
+
+          const response = await fetch(url, {
+            method,
+            headers: {
+              Authorization: `Bearer ${this.accessToken}`,
+              'Content-Type': `multipart/related; boundary="${boundary}"`
+            },
+            body: multipartBody
+          });
+
+          if (!response.ok) {
+            if (response.status === 404) {
+              this.fileId = null;
+            }
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+          if (result.id) this.fileId = result.id;
+
+          this.lastSyncAt = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+          this.pendingSync = false;
+          this.saveMeta();
+          this.isSyncing = false;
+          updateSaveIndicator('drive_synced');
+          updateDriveUI();
+          return true;
+        } catch (err) {
+          console.warn('Subida a Drive pospuesta (queda en cola offline):', err);
+          this.pendingSync = true;
+          this.saveMeta();
+          this.isSyncing = false;
+          updateSaveIndicator('offline_pending');
+          updateDriveUI();
+          return false;
+        }
+      }
+
+      async downloadPayload() {
+        if (!navigator.onLine || !this.clientId) return null;
+        try {
+          if (!this.hasValidToken()) {
+            const ok = await this.requestToken('consent');
+            if (!ok) return null;
+          }
+          if (!this.fileId) {
+            await this.findExistingFile();
+          }
+          if (!this.fileId) return null;
+
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${this.fileId}?alt=media`, {
+            headers: { Authorization: `Bearer ${this.accessToken}` }
+          });
+          if (!res.ok) return null;
+          const data = await res.json();
+          this.lastSyncAt = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+          this.pendingSync = false;
+          this.saveMeta();
+          updateDriveUI();
+          return data;
+        } catch (e) {
+          console.warn('Error descargando desde Drive:', e);
+          return null;
+        }
+      }
+    }
+
+    const driveSync = new GoogleDriveAutoSync();
+
+    // ---------------------------------------------------------------------
+    // 2. MOTOR DE PERSISTENCIA LOCAL (INDEXEDDB + LOCALSTORAGE + COLA DRIVE)
+    // ---------------------------------------------------------------------
+    const DB_CONFIG = {
+      NAME: 'ChipasYChipitasPOS_DB',
+      VERSION: 1,
+      STORE: 'app_state',
+      MIRROR_KEY: 'cyc_pos_v2_data'
+    };
+
+    class PersistentStore {
+      constructor() {
+        this.db = null;
+      }
+
+      async init() {
+        if (navigator.storage && navigator.storage.persist) {
+          try {
+            await navigator.storage.persist();
+          } catch (e) {
+            console.warn('storage.persist no disponible:', e);
+          }
+        }
+
+        return new Promise((resolve) => {
+          if (!window.indexedDB) {
+            resolve(false);
+            return;
+          }
+          const request = indexedDB.open(DB_CONFIG.NAME, DB_CONFIG.VERSION);
+          request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(DB_CONFIG.STORE)) {
+              db.createObjectStore(DB_CONFIG.STORE);
+            }
+          };
+          request.onsuccess = (event) => {
+            this.db = event.target.result;
+            resolve(true);
+          };
+          request.onerror = () => resolve(false);
+        });
+      }
+
+      async getAllState() {
+        let idbData = null;
+        if (this.db) {
+          idbData = await new Promise((resolve) => {
+            try {
+              const tx = this.db.transaction(DB_CONFIG.STORE, 'readonly');
+              const store = tx.objectStore(DB_CONFIG.STORE);
+              const req = store.get('full_state');
+              req.onsuccess = () => resolve(req.result || null);
+              req.onerror = () => resolve(null);
+            } catch (e) {
+              resolve(null);
+            }
+          });
+        }
+
+        if (idbData) return idbData;
+
+        try {
+          const rawV2 = localStorage.getItem(DB_CONFIG.MIRROR_KEY);
+          if (rawV2) return JSON.parse(rawV2);
+        } catch (e) {
+          console.error('Error leyendo fallback:', e);
+        }
+
+        return null;
+      }
+
+      async saveAllState(dataPayload, triggerDrive = true) {
+        updateSaveIndicator('saving');
+
+        if (this.db) {
+          await new Promise((resolve) => {
+            try {
+              const tx = this.db.transaction(DB_CONFIG.STORE, 'readwrite');
+              const store = tx.objectStore(DB_CONFIG.STORE);
+              store.put(dataPayload, 'full_state');
+              tx.oncomplete = () => resolve(true);
+              tx.onerror = () => resolve(false);
+            } catch (e) {
+              resolve(false);
+            }
+          });
+        }
+
+        try {
+          localStorage.setItem(DB_CONFIG.MIRROR_KEY, JSON.stringify(dataPayload));
+        } catch (quotaErr) {
+          try {
+            const lightPayload = {
+              ...dataPayload,
+              products: (dataPayload.products || []).map(p => ({ ...p, photo: null }))
+            };
+            localStorage.setItem(DB_CONFIG.MIRROR_KEY, JSON.stringify(lightPayload));
+          } catch (e2) {
+            console.warn('LocalStorage lleno, IndexedDB mantiene respaldo completo.');
+          }
+        }
+
+        if (triggerDrive && driveSync.clientId) {
+          driveSync.pendingSync = true;
+          driveSync.saveMeta();
+          if (navigator.onLine) {
+            driveSync.uploadPayload(dataPayload, false);
+          } else {
+            updateSaveIndicator('offline_pending');
+          }
+        } else {
+          updateSaveIndicator('local_saved');
+        }
+      }
+    }
+
+    const dbStore = new PersistentStore();
+
+    function updateSaveIndicator(status) {
+      const dot = document.getElementById('save-status-dot');
+      const txt = document.getElementById('save-status-text');
+      if (!dot || !txt) return;
+
+      if (status === 'saving' || status === 'syncing') {
+        dot.className = 'inline-block w-2 h-2 rounded-full bg-amber-300 animate-ping';
+        txt.textContent = status === 'syncing' ? 'Subiendo Drive...' : 'Guardando...';
+      } else if (status === 'drive_synced') {
+        dot.className = 'inline-block w-2 h-2 rounded-full bg-sky-300';
+        txt.textContent = 'Drive al día ☁️';
+      } else if (status === 'offline_pending') {
+        dot.className = 'inline-block w-2 h-2 rounded-full bg-amber-300';
+        txt.textContent = 'Offline (Pend. Drive)';
+      } else {
+        dot.className = 'inline-block w-2 h-2 rounded-full bg-emerald-300';
+        txt.textContent = 'Guardado Local';
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // 3. CATÁLOGO Y CATEGORÍAS INICIALES POR DEFECTO
+    // ---------------------------------------------------------------------
+    const DEFAULT_CATEGORIES = [
+      { id: 'cat_chipas', name: 'Chipás', emoji: '🧀', color: 'amber' },
+      { id: 'cat_salados', name: 'Salados', emoji: '🥟', color: 'orange' },
+      { id: 'cat_dulces', name: 'Dulces', emoji: '🍫', color: 'rose' },
+      { id: 'cat_bebidas', name: 'Bebidas', emoji: '🥤', color: 'sky' }
+    ];
+
+    const DEFAULT_PRODUCTS = [
+      { id: 'p1', name: 'Chipá Clásico 1/4 kg', price: 3500, categoryId: 'cat_chipas', active: true, photo: null },
+      { id: 'p2', name: 'Chipá Clásico 1/2 kg', price: 6500, categoryId: 'cat_chipas', active: true, photo: null },
+      { id: 'p3', name: 'Chipá Clásico 1 kg', price: 12000, categoryId: 'cat_chipas', active: true, photo: null },
+      { id: 'p4', name: 'Chipá Relleno Jamón y Queso', price: 2500, categoryId: 'cat_chipas', active: true, photo: null },
+      { id: 'p5', name: 'Coxinha de Pollo', price: 2800, categoryId: 'cat_salados', active: true, photo: null },
+      { id: 'p6', name: 'Pastel de Feira Carne', price: 3000, categoryId: 'cat_salados', active: true, photo: null },
+      { id: 'p7', name: 'Kibe Frito', price: 2500, categoryId: 'cat_salados', active: true, photo: null },
+      { id: 'p8', name: 'Churro Dulce de Leche', price: 2000, categoryId: 'cat_dulces', active: true, photo: null },
+      { id: 'p9', name: 'Agua Mineral 500ml', price: 1500, categoryId: 'cat_bebidas', active: true, photo: null },
+      { id: 'p10', name: 'Gaseosa Lata 354ml', price: 2000, categoryId: 'cat_bebidas', active: true, photo: null }
+    ];
+
+    const CAT_COLOR_MAP = {
+      amber:   { bg: 'bg-amber-500',   text: 'text-stone-950', badge: 'bg-amber-100 text-amber-900 border-amber-300' },
+      orange:  { bg: 'bg-orange-600',  text: 'text-white',     badge: 'bg-orange-100 text-orange-900 border-orange-300' },
+      emerald: { bg: 'bg-emerald-600', text: 'text-white',     badge: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
+      sky:     { bg: 'bg-sky-600',     text: 'text-white',     badge: 'bg-sky-100 text-sky-900 border-sky-300' },
+      rose:    { bg: 'bg-rose-600',    text: 'text-white',     badge: 'bg-rose-100 text-rose-900 border-rose-300' },
+      purple:  { bg: 'bg-purple-600',  text: 'text-white',     badge: 'bg-purple-100 text-purple-900 border-purple-300' }
+    };
+
+    // ---------------------------------------------------------------------
+    // 4. ESTADO GLOBAL EN MEMORIA
+    // ---------------------------------------------------------------------
+    let appState = {
+      categories: [...DEFAULT_CATEGORIES],
+      products: [...DEFAULT_PRODUCTS],
+      orders: [],
+      orderCounter: 1,
+      printMode: 'browser',
+      updatedAt: Date.now()
+    };
+
+    let activeCategory = 'ALL';
+    let cart = {}; // { productId: quantity }
+    let selectedPayment = 'Efectivo';
+    let lastCompletedOrder = null;
+    let tempNewPhotoBase64 = null;
+    let tempEditPhotoBase64 = null;
+    let newCategoryColor = 'amber';
+
+    function formatARS(num) {
+      return '$' + Number(num || 0).toLocaleString('es-AR');
+    }
+
+    function formatOrderNumber(num) {
+      return '#' + String(num || 1).padStart(3, '0');
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast-notification');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => {
+        el.classList.add('hidden');
+      }, 2400);
+    }
+
+    async function persistState() {
+      appState.updatedAt = Date.now();
+      await dbStore.saveAllState(appState, true);
+      updateHeaderInfo();
+    }
+
+    // ---------------------------------------------------------------------
+    // 5. INICIALIZACIÓN Y RECONEXIÓN AUTOMÁTICA DE WI-FI -> GOOGLE DRIVE
+    // ---------------------------------------------------------------------
+    window.addEventListener('online', () => {
+      showToast('📶 Wi-Fi detectado');
+      if (driveSync.clientId && driveSync.pendingSync) {
+        driveSync.uploadPayload(appState, false);
+      }
+      updateDriveUI();
+    });
+
+    window.addEventListener('offline', () => {
+      updateSaveIndicator(driveSync.pendingSync ? 'offline_pending' : 'local_saved');
+      updateDriveUI();
+    });
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await dbStore.init();
+      const saved = await dbStore.getAllState();
+
+      if (saved) {
+        if (Array.isArray(saved.categories) && saved.categories.length > 0) {
+          appState.categories = saved.categories;
+        }
+        if (Array.isArray(saved.products) && saved.products.length > 0) {
+          appState.products = saved.products;
+        }
+        if (Array.isArray(saved.orders)) {
+          appState.orders = saved.orders;
+        }
+        if (typeof saved.orderCounter === 'number') {
+          appState.orderCounter = saved.orderCounter;
+        }
+        if (saved.printMode) {
+          appState.printMode = saved.printMode;
+        }
+      } else {
+        await persistState();
+      }
+
+      const clientInput = document.getElementById('google-client-id-input');
+      if (clientInput && driveSync.clientId) {
+        clientInput.value = driveSync.clientId;
+      }
+
+      refreshAllViews();
+
+      // Si hay conexión y cambios pendientes para Drive, intentar sincronizar
+      if (navigator.onLine && driveSync.clientId && driveSync.pendingSync) {
+        driveSync.uploadPayload(appState, false);
+      } else if (driveSync.isLinked() && !driveSync.pendingSync) {
+        updateSaveIndicator('drive_synced');
+      } else {
+        updateSaveIndicator('local_saved');
+      }
+    });
+
+    function refreshAllViews() {
+      updateHeaderInfo();
+      renderCategories();
+      populateCategorySelects();
+      renderProducts();
+      renderManageProducts();
+      renderOrdersHistory();
+      updateStickyBar();
+      updateDriveUI();
+
+      const radios = document.querySelectorAll('input[name="autoPrintMode"]');
+      radios.forEach(r => { r.checked = (r.value === appState.printMode); });
+    }
+
+    function updateHeaderInfo() {
+      const nextEl = document.getElementById('header-next-order');
+      if (nextEl) nextEl.textContent = formatOrderNumber(appState.orderCounter);
+
+      const badgeOrders = document.getElementById('badge-orders-count');
+      if (badgeOrders) badgeOrders.textContent = String(appState.orders.length);
+
+      const printBadge = document.getElementById('print-mode-badge');
+      if (printBadge) {
+        printBadge.textContent = appState.printMode === 'rawbt' ? 'RawBT' : (appState.printMode === 'manual' ? 'Manual' : '80mm');
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // 6. NAVEGACIÓN ENTRE PESTAÑAS
+    // ---------------------------------------------------------------------
+    function switchTab(tabName) {
+      const views = ['vender', 'comandas', 'productos'];
+      views.forEach(v => {
+        const viewEl = document.getElementById('view-' + v);
+        const btnEl = document.getElementById('tab-btn-' + v);
+        if (!viewEl || !btnEl) return;
+
+        if (v === tabName) {
+          viewEl.classList.remove('hidden');
+          btnEl.className = 'py-2.5 px-2 rounded-xl text-xs font-extrabold bg-amber-500 text-stone-950 shadow-sm flex items-center justify-center gap-1';
+        } else {
+          viewEl.classList.add('hidden');
+          btnEl.className = 'py-2.5 px-2 rounded-xl text-xs font-bold text-stone-600 flex items-center justify-center gap-1';
+        }
+      });
+
+      if (tabName === 'vender') {
+        renderCategories();
+        renderProducts();
+        updateStickyBar();
+      } else {
+        const sticky = document.getElementById('sticky-checkout-bar');
+        if (sticky) sticky.classList.add('hidden');
+        if (tabName === 'comandas') renderOrdersHistory();
+        if (tabName === 'productos') renderManageProducts();
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // 7. RENDER DE CATEGORÍAS Y PRODUCTOS (PESTAÑA VENDER)
+    // ---------------------------------------------------------------------
+    function renderCategories() {
+      const bar = document.getElementById('category-bar');
+      if (!bar) return;
+
+      let html = `
+        <button type="button" onclick="selectCategory('ALL')"
+          class="px-3.5 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-all shrink-0 ${activeCategory === 'ALL' ? 'bg-stone-900 text-amber-400 shadow-sm' : 'bg-white text-stone-700 border border-amber-200'}">
+          ✨ Todos
+        </button>
+      `;
+
+      appState.categories.forEach(cat => {
+        const isSelected = activeCategory === cat.id;
+        const cStyle = CAT_COLOR_MAP[cat.color] || CAT_COLOR_MAP.amber;
+        html += `
+          <button type="button" onclick="selectCategory('${cat.id}')"
+            class="px-3.5 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-all shrink-0 flex items-center gap-1 ${isSelected ? `${cStyle.bg} ${cStyle.text} shadow-sm` : 'bg-white text-stone-700 border border-amber-200'}">
+            <span>${cat.emoji || '🏷️'}</span>
+            <span>${cat.name}</span>
+          </button>
+        `;
+      });
+
+      bar.innerHTML = html;
+    }
+
+    function selectCategory(catId) {
+      activeCategory = catId;
+      renderCategories();
+      renderProducts();
+    }
+
+    function renderProducts() {
+      const grid = document.getElementById('products-grid');
+      const emptyMsg = document.getElementById('empty-products-msg');
+      if (!grid) return;
+
+      const filtered = appState.products.filter(p => {
+        if (!p.active) return false;
+        if (activeCategory === 'ALL') return true;
+        return p.categoryId === activeCategory;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '';
+        if (emptyMsg) emptyMsg.classList.remove('hidden');
+        return;
+      }
+
+      if (emptyMsg) emptyMsg.classList.add('hidden');
+
+      grid.innerHTML = filtered.map(prod => {
+        const qty = cart[prod.id] || 0;
+        const cat = appState.categories.find(c => c.id === prod.categoryId);
+        const emoji = cat ? cat.emoji : '🧀';
+
+        return `
+          <div class="bg-white rounded-2xl border-2 ${qty > 0 ? 'border-amber-500 ring-2 ring-amber-400/40' : 'border-amber-200/90'} shadow-xs overflow-hidden flex flex-col justify-between transition-all">
+            <button type="button" onclick="addToCart('${prod.id}')" class="text-left w-full flex-1 flex flex-col active:bg-amber-50">
+              ${prod.photo
+                ? `<div class="w-full h-24 bg-amber-100 overflow-hidden relative">
+                     <img src="${prod.photo}" alt="${prod.name}" class="w-full h-full object-cover" />
+                     ${qty > 0 ? `<span class="absolute top-1.5 right-1.5 bg-amber-500 text-stone-950 font-black text-xs px-2 py-0.5 rounded-lg shadow">x${qty}</span>` : ''}
+                   </div>`
+                : `<div class="px-3 pt-3 flex items-center justify-between">
+                     <span class="text-2xl">${emoji}</span>
+                     ${qty > 0 ? `<span class="bg-amber-500 text-stone-950 font-black text-xs px-2 py-0.5 rounded-lg">x${qty}</span>` : ''}
+                   </div>`
+              }
+              <div class="p-3 flex-1 flex flex-col justify-between">
+                <p class="font-extrabold text-stone-900 text-sm leading-snug line-clamp-2">${prod.name}</p>
+                <p class="font-black text-amber-700 text-base mt-1.5">${formatARS(prod.price)}</p>
+              </div>
+            </button>
+
+            ${qty > 0 ? `
+              <div class="grid grid-cols-3 border-t border-amber-200 bg-amber-100/70">
+                <button type="button" onclick="removeFromCart('${prod.id}')" class="py-2 font-black text-base text-red-700 active:bg-red-200">−</button>
+                <span class="py-2 font-black text-sm text-center text-stone-950 flex items-center justify-center">${qty}</span>
+                <button type="button" onclick="addToCart('${prod.id}')" class="py-2 font-black text-base text-emerald-800 active:bg-emerald-200">+</button>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ---------------------------------------------------------------------
+    // 8. CARRITO DE COMPRA Y BARRA INFERIOR
+    // ---------------------------------------------------------------------
+    function addToCart(productId) {
+      cart[productId] = (cart[productId] || 0) + 1;
+      renderProducts();
+      updateStickyBar();
+    }
+
+    function removeFromCart(productId) {
+      if (!cart[productId]) return;
+      cart[productId] -= 1;
+      if (cart[productId] <= 0) {
+        delete cart[productId];
+      }
+      renderProducts();
+      updateStickyBar();
+    }
+
+    function clearCart() {
+      cart = {};
+      renderProducts();
+      updateStickyBar();
+      showToast('Pedido vaciado');
+    }
+
+    function getCartSummary() {
+      let totalItems = 0;
+      let totalPrice = 0;
+      const items = [];
+
+      Object.keys(cart).forEach(prodId => {
+        const qty = cart[prodId];
+        const prod = appState.products.find(p => p.id === prodId);
+        if (prod && qty > 0) {
+          totalItems += qty;
+          const subtotal = prod.price * qty;
+          totalPrice += subtotal;
+          items.push({
+            id: prod.id,
+            name: prod.name,
+            price: prod.price,
+            qty,
+            subtotal
+          });
+        }
+      });
+
+      return { totalItems, totalPrice, items };
+    }
+
+    function updateStickyBar() {
+      const bar = document.getElementById('sticky-checkout-bar');
+      const venderView = document.getElementById('view-vender');
+      if (!bar || !venderView || venderView.classList.contains('hidden')) return;
+
+      const { totalItems, totalPrice } = getCartSummary();
+      if (totalItems === 0) {
+        bar.classList.add('hidden');
+      } else {
+        bar.classList.remove('hidden');
+        document.getElementById('sticky-items-count').textContent = String(totalItems);
+        document.getElementById('sticky-total-price').textContent = formatARS(totalPrice);
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // 9. PROCESO DE COBRO, VUELTO Y GENERACIÓN DE COMANDA
+    // ---------------------------------------------------------------------
+    function openCheckoutModal() {
+      const { totalItems, totalPrice, items } = getCartSummary();
+      if (totalItems === 0) return;
+
+      document.getElementById('checkout-order-num').textContent = formatOrderNumber(appState.orderCounter);
+      document.getElementById('checkout-total-display').textContent = formatARS(totalPrice);
+      document.getElementById('customer-name-input').value = '';
+      document.getElementById('cash-given-input').value = '';
+      document.getElementById('cash-change-display').textContent = '$0';
+
+      const listEl = document.getElementById('checkout-items-list');
+      listEl.innerHTML = items.map(it => `
+        <div class="flex items-center justify-between text-xs font-bold text-stone-800">
+          <span><strong class="text-amber-800">${it.qty}x</strong> ${it.name}</span>
+          <span class="font-black">${formatARS(it.subtotal)}</span>
+        </div>
+      `).join('');
+
+      selectPaymentMethod('Efectivo');
+      document.getElementById('checkout-modal').classList.remove('hidden');
+    }
+
+    function closeCheckoutModal() {
+      document.getElementById('checkout-modal').classList.add('hidden');
+    }
+
+    function selectPaymentMethod(method) {
+      selectedPayment = method;
+      const btnCash = document.getElementById('pay-btn-Efectivo');
+      const btnTrans = document.getElementById('pay-btn-Transferencia');
+      const calcBox = document.getElementById('cash-calculator-box');
+
+      if (method === 'Efectivo') {
+        btnCash.className = 'py-3 rounded-xl font-black text-sm border-2 bg-emerald-600 text-white border-emerald-700 shadow-xs';
+        btnTrans.className = 'py-3 rounded-xl font-black text-sm border-2 bg-stone-100 text-stone-700 border-stone-300';
+        calcBox.classList.remove('hidden');
+      } else {
+        btnTrans.className = 'py-3 rounded-xl font-black text-sm border-2 bg-sky-600 text-white border-sky-700 shadow-xs';
+        btnCash.className = 'py-3 rounded-xl font-black text-sm border-2 bg-stone-100 text-stone-700 border-stone-300';
+        calcBox.classList.add('hidden');
+      }
+    }
+
+    function setCashBill(val) {
+      const { totalPrice } = getCartSummary();
+      const input = document.getElementById('cash-given-input');
+      if (val === 'exact') {
+        input.value = totalPrice;
+      } else {
+        const current = parseInt(input.value || '0', 10);
+        input.value = current + val;
+      }
+      calculateChange();
+    }
+
+    function calculateChange() {
+      const { totalPrice } = getCartSummary();
+      const given = parseInt(document.getElementById('cash-given-input').value || '0', 10);
+      const change = Math.max(0, given - totalPrice);
+      document.getElementById('cash-change-display').textContent = formatARS(change);
+    }
+
+    async function confirmSale() {
+      const { totalItems, totalPrice, items } = getCartSummary();
+      if (totalItems === 0) return;
+
+      const customerName = (document.getElementById('customer-name-input').value || '').trim().toUpperCase();
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      const dateStr = now.toLocaleDateString('es-AR');
+
+      const newOrder = {
+        id: 'ord_' + Date.now(),
+        number: appState.orderCounter,
+        formattedNumber: formatOrderNumber(appState.orderCounter),
+        customerName,
+        items,
+        total: totalPrice,
+        paymentMethod: selectedPayment,
+        time: timeStr,
+        date: dateStr,
+        timestamp: Date.now()
+      };
+
+      appState.orders.unshift(newOrder);
+      appState.orderCounter += 1;
+      lastCompletedOrder = newOrder;
+
+      cart = {};
+      closeCheckoutModal();
+      renderProducts();
+      updateStickyBar();
+
+      await persistState();
+
+      document.getElementById('success-order-num').textContent = newOrder.formattedNumber;
+      document.getElementById('success-order-summary').textContent = `${formatARS(newOrder.total)} • ${newOrder.paymentMethod}`;
+      document.getElementById('ticket-success-modal').classList.remove('hidden');
+
+      if (appState.printMode !== 'manual') {
+        printThermalOrder(newOrder);
+      }
+    }
+
+    function closeSuccessModal() {
+      document.getElementById('ticket-success-modal').classList.add('hidden');
+    }
+
+    function reprintLastOrder() {
+      if (lastCompletedOrder) {
+        printThermalOrder(lastCompletedOrder);
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // 10. IMPRESIÓN TÉRMICA 80 MM (DOBLE TALÓN: CLIENTE + DESPACHO)
+    // ---------------------------------------------------------------------
+    function printThermalOrder(order) {
+      if (appState.printMode === 'rawbt') {
+        const textTicket = buildRawBTText(order);
+        const encoded = encodeURIComponent(textTicket);
+        window.location.href = `rawbt:${encoded}`;
+        return;
+      }
+
+      const area = document.getElementById('thermal-ticket-area');
+      if (!area) return;
+
+      const itemsClientHTML = order.items.map(it => `
+        <div style="display:flex; justify-content:space-between; font-size:13px; margin:2px 0;">
+          <span>${it.qty}x ${it.name}</span>
+          <span>${formatARS(it.subtotal)}</span>
+        </div>
+      `).join('');
+
+      const itemsKitchenHTML = order.items.map(it => `
+        <div style="font-size:20px; font-weight:900; margin:5px 0; line-height:1.15; border-bottom:1px solid #000; padding-bottom:3px;">
+          ${it.qty}x ${it.name.toUpperCase()}
+        </div>
+      `).join('');
+
+      area.innerHTML = `
+        <!-- TALÓN 1: CLIENTE -->
+        <div style="text-align:center;">
+          <div style="font-size:18px; font-weight:900;">CHIPAS Y CHIPITAS</div>
+          <div style="font-size:11px;">${order.date} - ${order.time}</div>
+          <div style="font-size:38px; font-weight:900; margin:4px 0; border:3px solid #000; padding:2px;">
+            ${order.formattedNumber}
+          </div>
+          ${order.customerName ? `<div style="font-size:15px; font-weight:900;">CLIENTE: ${order.customerName}</div>` : ''}
+        </div>
+
+        <div style="margin:6px 0; border-top:1px dashed #000; border-bottom:1px dashed #000; padding:4px 0;">
+          ${itemsClientHTML}
+        </div>
+
+        <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:900;">
+          <span>TOTAL (${order.paymentMethod.toUpperCase()})</span>
+          <span>${formatARS(order.total)}</span>
+        </div>
+
+        <div style="margin-top:8px; border:2px solid #000; padding:5px; text-align:center; font-size:14px; font-weight:900;">
+          ⬅️ RETIRA TU PEDIDO POR LA IZQUIERDA
+        </div>
+
+        <div class="ticket-cut-line">✂ - - - - - CORTAR AQUÍ - - - - - ✂</div>
+
+        <!-- TALÓN 2: COMANDA COCINA / DESPACHO -->
+        <div style="text-align:center;">
+          <div style="font-size:13px; font-weight:900;">*** COMANDA DESPACHO ***</div>
+          <div style="font-size:42px; font-weight:900; line-height:1; margin:3px 0;">
+            ${order.formattedNumber}
+          </div>
+          ${order.customerName ? `<div style="font-size:18px; font-weight:900; background:#000; color:#fff; padding:2px;">${order.customerName}</div>` : ''}
+          <div style="font-size:11px; margin-top:2px;">Hora: ${order.time}</div>
+        </div>
+
+        <div style="margin-top:8px;">
+          ${itemsKitchenHTML}
+        </div>
+      `;
+
+      setTimeout(() => {
+        window.print();
+      }, 120);
+    }
+
+    function buildRawBTText(order) {
+      let t = '';
+      t += '      CHIPAS Y CHIPITAS\n';
+      t += `      ${order.date} ${order.time}\n`;
+      t += '================================\n';
+      t += `        ORDEN: ${order.formattedNumber}\n`;
+      if (order.customerName) t += `      CLIENTE: ${order.customerName}\n`;
+      t += '================================\n';
+      order.items.forEach(it => {
+        t += `${it.qty}x ${it.name}   ${formatARS(it.subtotal)}\n`;
+      });
+      t += '--------------------------------\n';
+      t += `TOTAL (${order.paymentMethod}): ${formatARS(order.total)}\n`;
+      t += 'RETIRA TU PEDIDO POR LA IZQUIERDA\n';
+      t += '\n- - - - - - - - - - - - - - - -\n\n';
+      t += `*** DESPACHO ${order.formattedNumber} ***\n`;
+      if (order.customerName) t += `CLIENTE: ${order.customerName}\n`;
+      t += '--------------------------------\n';
+      order.items.forEach(it => {
+        t += `>> ${it.qty}x ${it.name.toUpperCase()}\n`;
+      });
+      t += '\n\n\n';
+      return t;
+    }
+
+    // ---------------------------------------------------------------------
+    // 11. HISTORIAL DE COMANDAS Y EXPORTACIÓN CSV EXCEL
+    // ---------------------------------------------------------------------
+    function renderOrdersHistory() {
+      const listEl = document.getElementById('orders-history-list');
+      if (!listEl) return;
+
+      let totalAll = 0;
+      let totalCash = 0;
+      let totalTrans = 0;
+
+      appState.orders.forEach(o => {
+        totalAll += o.total;
+        if (o.paymentMethod === 'Efectivo') totalCash += o.total;
+        else totalTrans += o.total;
+      });
+
+      document.getElementById('summary-total-sales').textContent = formatARS(totalAll);
+      document.getElementById('summary-cash-sales').textContent = formatARS(totalCash);
+      document.getElementById('summary-transfer-sales').textContent = formatARS(totalTrans);
+
+      if (appState.orders.length === 0) {
+        listEl.innerHTML = `
+          <div class="bg-white rounded-2xl p-8 text-center border border-amber-200 space-y-1">
+            <div class="text-3xl">🧾</div>
+            <p class="font-extrabold text-stone-800 text-sm">Aún no hay comandas en este turno</p>
+            <p class="text-xs text-stone-500">Las ventas confirmadas aparecerán acá al instante.</p>
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = appState.orders.map(o => `
+        <div class="bg-white rounded-2xl p-3.5 border border-amber-200 shadow-xs space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="bg-stone-900 text-amber-400 font-black text-sm px-2.5 py-1 rounded-lg">${o.formattedNumber}</span>
+              <div>
+                <p class="font-black text-stone-900 text-sm">${o.customerName || 'Cliente Mostrador'}</p>
+                <p class="text-[11px] font-bold text-stone-500">${o.time} hs • ${o.paymentMethod}</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <p class="font-black text-base text-emerald-700">${formatARS(o.total)}</p>
+              <button type="button" onclick="reprintOrderById('${o.id}')" class="text-[11px] font-extrabold text-amber-700 underline">🖨️ Reimprimir</button>
+            </div>
+          </div>
+          <div class="text-xs text-stone-700 bg-amber-50/70 px-2.5 py-1.5 rounded-xl font-semibold">
+            ${o.items.map(i => `${i.qty}x ${i.name}`).join(' • ')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function reprintOrderById(orderId) {
+      const ord = appState.orders.find(o => o.id === orderId);
+      if (ord) printThermalOrder(ord);
+    }
+
+    function exportOrdersCSV() {
+      if (appState.orders.length === 0) {
+        showToast('No hay ventas para exportar');
+        return;
+      }
+      const headers = ['Orden', 'Fecha', 'Hora', 'Cliente', 'Detalle', 'MedioPago', 'Total'];
+      const rows = appState.orders.map(o => [
+        o.formattedNumber,
+        o.date,
+        o.time,
+        `"${(o.customerName || 'Mostrador').replace(/"/g, '""')}"`,
+        `"${o.items.map(i => `${i.qty}x ${i.name}`).join(' + ').replace(/"/g, '""')}"`,
+        o.paymentMethod,
+        o.total
+      ]);
+
+      const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Ventas_ChipasYChipitas_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('📊 Planilla CSV descargada');
+    }
+
+    function openResetShiftModal() {
+      document.getElementById('reset-shift-modal').classList.remove('hidden');
+    }
+
+    function closeResetShiftModal() {
+      document.getElementById('reset-shift-modal').classList.add('hidden');
+    }
+
+    async function confirmResetShift() {
+      appState.orders = [];
+      appState.orderCounter = 1;
+      await persistState();
+      closeResetShiftModal();
+      renderOrdersHistory();
+      showToast('🔄 Turno reiniciado a #001');
+    }
+
+    // ---------------------------------------------------------------------
+    // 12. GESTIÓN DE PRODUCTOS Y COMPRESIÓN DE FOTOS (CÁMARA / GALERÍA)
+    // ---------------------------------------------------------------------
+    function populateCategorySelects() {
+      const selects = [document.getElementById('new-prod-cat'), document.getElementById('edit-prod-cat')];
+      selects.forEach(sel => {
+        if (!sel) return;
+        const currentVal = sel.value;
+        sel.innerHTML = appState.categories.map(c => `<option value="${c.id}">${c.emoji || '🏷️'} ${c.name}</option>`).join('');
+        if (currentVal && appState.categories.some(c => c.id === currentVal)) {
+          sel.value = currentVal;
+        }
+      });
+    }
+
+    function handlePhotoUpload(event, target) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 320;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height = Math.round((height * MAX_SIZE) / width);
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width = Math.round((width * MAX_SIZE) / height);
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+          if (target === 'new') {
+            tempNewPhotoBase64 = compressedBase64;
+            document.getElementById('new-prod-photo-preview').innerHTML = `<img src="${compressedBase64}" class="w-full h-full object-cover" />`;
+            document.getElementById('new-prod-photo-clear').classList.remove('hidden');
+          } else {
+            tempEditPhotoBase64 = compressedBase64;
+            document.getElementById('edit-prod-photo-preview').innerHTML = `<img src="${compressedBase64}" class="w-full h-full object-cover" />`;
+            document.getElementById('edit-prod-photo-clear').classList.remove('hidden');
+          }
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearPhotoSelection(target) {
+      if (target === 'new') {
+        tempNewPhotoBase64 = null;
+        document.getElementById('new-prod-photo-preview').innerHTML = '📸';
+        document.getElementById('new-prod-photo-clear').classList.add('hidden');
+        document.getElementById('new-prod-photo-input').value = '';
+      } else {
+        tempEditPhotoBase64 = null;
+        document.getElementById('edit-prod-photo-preview').innerHTML = '📸';
+        document.getElementById('edit-prod-photo-clear').classList.add('hidden');
+        document.getElementById('edit-prod-photo-input').value = '';
+      }
+    }
+
+    async function handleAddProduct(event) {
+      event.preventDefault();
+      const nameInput = document.getElementById('new-prod-name');
+      const priceInput = document.getElementById('new-prod-price');
+      const catInput = document.getElementById('new-prod-cat');
+
+      const name = nameInput.value.trim();
+      const price = parseInt(priceInput.value, 10);
+      const categoryId = catInput.value || (appState.categories[0] && appState.categories[0].id);
+
+      if (!name || isNaN(price) || price <= 0) return;
+
+      const newProd = {
+        id: 'prod_' + Date.now(),
+        name,
+        price,
+        categoryId,
+        active: true,
+        photo: tempNewPhotoBase64
+      };
+
+      appState.products.unshift(newProd);
+      await persistState();
+
+      nameInput.value = '';
+      priceInput.value = '';
+      clearPhotoSelection('new');
+
+      renderManageProducts();
+      renderProducts();
+      showToast('✅ Producto agregado');
+    }
+
+    function renderManageProducts() {
+      const listEl = document.getElementById('manage-products-list');
+      const countEl = document.getElementById('catalog-total-count');
+      if (!listEl) return;
+
+      if (countEl) countEl.textContent = String(appState.products.length);
+
+      listEl.innerHTML = appState.products.map(prod => {
+        const cat = appState.categories.find(c => c.id === prod.categoryId);
+        const catLabel = cat ? `${cat.emoji} ${cat.name}` : 'Sin categoría';
+
+        return `
+          <div class="bg-white rounded-2xl p-3 border ${prod.active ? 'border-amber-200' : 'border-stone-300 opacity-65'} shadow-xs flex items-center justify-between gap-2.5">
+            <button type="button" onclick="openEditProductModal('${prod.id}')" class="flex items-center gap-3 flex-1 text-left min-w-0">
+              <div class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-xl shrink-0 overflow-hidden border border-amber-200">
+                ${prod.photo ? `<img src="${prod.photo}" class="w-full h-full object-cover" />` : (cat ? cat.emoji : '🧀')}
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="font-extrabold text-stone-900 text-sm truncate">${prod.name}</p>
+                <p class="text-xs font-black text-amber-700">${formatARS(prod.price)} <span class="font-semibold text-stone-500">• ${catLabel}</span></p>
+              </div>
+            </button>
+
+            <button type="button" onclick="toggleProductStock('${prod.id}')" class="px-2.5 py-2 rounded-xl text-[11px] font-black shrink-0 ${prod.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}">
+              ${prod.active ? 'Activo' : 'Sin Stock'}
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function toggleProductStock(prodId) {
+      const prod = appState.products.find(p => p.id === prodId);
+      if (!prod) return;
+      prod.active = !prod.active;
+      await persistState();
+      renderManageProducts();
+      renderProducts();
+      showToast(prod.active ? 'Producto activado' : 'Marcado sin stock');
+    }
+
+    function openEditProductModal(prodId) {
+      const prod = appState.products.find(p => p.id === prodId);
+      if (!prod) return;
+
+      populateCategorySelects();
+      document.getElementById('edit-prod-id').value = prod.id;
+      document.getElementById('edit-prod-name').value = prod.name;
+      document.getElementById('edit-prod-price').value = prod.price;
+      document.getElementById('edit-prod-cat').value = prod.categoryId;
+
+      tempEditPhotoBase64 = prod.photo || null;
+      const prev = document.getElementById('edit-prod-photo-preview');
+      const clearBtn = document.getElementById('edit-prod-photo-clear');
+      if (prod.photo) {
+        prev.innerHTML = `<img src="${prod.photo}" class="w-full h-full object-cover" />`;
+        clearBtn.classList.remove('hidden');
+      } else {
+        prev.innerHTML = '📸';
+        clearBtn.classList.add('hidden');
+      }
+
+      document.getElementById('edit-product-modal').classList.remove('hidden');
+    }
+
+    function closeEditProductModal() {
+      document.getElementById('edit-product-modal').classList.add('hidden');
+    }
+
+    async function saveEditedProduct(event) {
+      event.preventDefault();
+      const id = document.getElementById('edit-prod-id').value;
+      const prod = appState.products.find(p => p.id === id);
+      if (!prod) return;
+
+      prod.name = document.getElementById('edit-prod-name').value.trim();
+      prod.price = parseInt(document.getElementById('edit-prod-price').value, 10);
+      prod.categoryId = document.getElementById('edit-prod-cat').value;
+      prod.photo = tempEditPhotoBase64;
+
+      await persistState();
+      closeEditProductModal();
+      renderManageProducts();
+      renderProducts();
+      showToast('💾 Cambios guardados');
+    }
+
+    async function deleteCurrentEditingProduct() {
+      const id = document.getElementById('edit-prod-id').value;
+      appState.products = appState.products.filter(p => p.id !== id);
+      delete cart[id];
+      await persistState();
+      closeEditProductModal();
+      renderManageProducts();
+      renderProducts();
+      showToast('🗑️ Producto eliminado');
+    }
+
+    // ---------------------------------------------------------------------
+    // 13. GESTOR DE CATEGORÍAS
+    // ---------------------------------------------------------------------
+    function openCategoriesModal() {
+      renderCategoriesManageList();
+      document.getElementById('categories-modal').classList.remove('hidden');
+    }
+
+    function closeCategoriesModal() {
+      document.getElementById('categories-modal').classList.add('hidden');
+      populateCategorySelects();
+      renderCategories();
+      renderProducts();
+      renderManageProducts();
+    }
+
+    function selectNewCatColor(color) {
+      newCategoryColor = color;
+      document.querySelectorAll('.cat-color-btn').forEach(btn => {
+        if (btn.dataset.color === color) {
+          btn.classList.add('ring-2', 'ring-offset-2', 'ring-stone-900');
+        } else {
+          btn.classList.remove('ring-2', 'ring-offset-2', 'ring-stone-900');
+        }
+      });
+    }
+
+    async function handleAddCategory(event) {
+      event.preventDefault();
+      const emoji = (document.getElementById('new-cat-emoji').value || '🏷️').trim();
+      const name = document.getElementById('new-cat-name').value.trim();
+      if (!name) return;
+
+      appState.categories.push({
+        id: 'cat_' + Date.now(),
+        name,
+        emoji,
+        color: newCategoryColor
+      });
+
+      document.getElementById('new-cat-name').value = '';
+      await persistState();
+      renderCategoriesManageList();
+      showToast('🏷️ Categoría agregada');
+    }
+
+    function renderCategoriesManageList() {
+      const listEl = document.getElementById('categories-manage-list');
+      if (!listEl) return;
+
+      listEl.innerHTML = appState.categories.map((cat, idx) => `
+        <div class="flex items-center justify-between bg-stone-50 border border-stone-200 p-2.5 rounded-xl gap-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-xl">${cat.emoji}</span>
+            <span class="font-extrabold text-sm text-stone-900 truncate">${cat.name}</span>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button type="button" onclick="moveCategory(${idx}, -1)" class="p-1.5 bg-white border border-stone-300 rounded-lg text-xs font-black" title="Subir">↑</button>
+            <button type="button" onclick="moveCategory(${idx}, 1)" class="p-1.5 bg-white border border-stone-300 rounded-lg text-xs font-black" title="Bajar">↓</button>
+            <button type="button" onclick="openRenameCatModal('${cat.id}')" class="p-1.5 bg-amber-100 text-amber-900 rounded-lg text-xs font-black">✏️</button>
+            ${appState.categories.length > 1 ? `<button type="button" onclick="deleteCategory('${cat.id}')" class="p-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-black">✕</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function moveCategory(index, delta) {
+      const target = index + delta;
+      if (target < 0 || target >= appState.categories.length) return;
+      const temp = appState.categories[index];
+      appState.categories[index] = appState.categories[target];
+      appState.categories[target] = temp;
+      await persistState();
+      renderCategoriesManageList();
+    }
+
+    function openRenameCatModal(catId) {
+      const cat = appState.categories.find(c => c.id === catId);
+      if (!cat) return;
+      document.getElementById('rename-cat-id').value = cat.id;
+      document.getElementById('rename-cat-input').value = cat.name;
+      document.getElementById('rename-cat-modal').classList.remove('hidden');
+    }
+
+    function closeRenameCatModal() {
+      document.getElementById('rename-cat-modal').classList.add('hidden');
+    }
+
+    async function confirmRenameCategory() {
+      const id = document.getElementById('rename-cat-id').value;
+      const newName = document.getElementById('rename-cat-input').value.trim();
+      const cat = appState.categories.find(c => c.id === id);
+      if (cat && newName) {
+        cat.name = newName;
+        await persistState();
+        renderCategoriesManageList();
+      }
+      closeRenameCatModal();
+    }
+
+    async function deleteCategory(catId) {
+      if (appState.categories.length <= 1) return;
+      appState.categories = appState.categories.filter(c => c.id !== catId);
+      const fallbackId = appState.categories[0].id;
+      appState.products.forEach(p => {
+        if (p.categoryId === catId) p.categoryId = fallbackId;
+      });
+      if (activeCategory === catId) activeCategory = 'ALL';
+      await persistState();
+      renderCategoriesManageList();
+      showToast('Categoría eliminada');
+    }
+
+    // ---------------------------------------------------------------------
+    // 14. AJUSTES DE IMPRESORA, GOOGLE DRIVE Y RESPALDOS
+    // ---------------------------------------------------------------------
+    function openSettingsModal() {
+      document.getElementById('settings-modal').classList.remove('hidden');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settings-modal').classList.add('hidden');
+    }
+
+    async function savePrintMode(mode) {
+      appState.printMode = mode;
+      await persistState();
+      showToast('Modo de impresión actualizado');
+    }
+
+    function openDriveModal() {
+      updateDriveUI();
+      document.getElementById('drive-modal').classList.remove('hidden');
+    }
+
+    function closeDriveModal() {
+      document.getElementById('drive-modal').classList.add('hidden');
+    }
+
+    function updateDriveUI() {
+      const statusEl = document.getElementById('drive-modal-status');
+      const lastSyncEl = document.getElementById('drive-last-sync-text');
+      const pendingEl = document.getElementById('drive-pending-badge');
+      const headerBadge = document.getElementById('drive-status-badge');
+
+      if (statusEl) {
+        if (!driveSync.clientId) {
+          statusEl.textContent = 'Sin configurar';
+          statusEl.className = 'text-xs font-black text-stone-500';
+        } else if (driveSync.isLinked()) {
+          statusEl.textContent = navigator.onLine ? 'Conectado ✓' : 'Vinculado (Sin Wi-Fi)';
+          statusEl.className = 'text-xs font-black text-emerald-700';
+        } else {
+          statusEl.textContent = 'Listo para vincular';
+          statusEl.className = 'text-xs font-black text-sky-700';
+        }
+      }
+
+      if (lastSyncEl) {
+        lastSyncEl.textContent = driveSync.lastSyncAt || 'Aún no sincronizado';
+      }
+
+      if (pendingEl) {
+        if (driveSync.pendingSync) {
+          pendingEl.textContent = 'Pendiente de Wi-Fi ⏳';
+          pendingEl.className = 'text-xs font-black text-amber-700';
+        } else {
+          pendingEl.textContent = 'Al día ✓';
+          pendingEl.className = 'text-xs font-black text-emerald-700';
+        }
+      }
+
+      if (headerBadge) {
+        headerBadge.textContent = driveSync.pendingSync ? 'Drive ⏳' : (driveSync.isLinked() ? 'Drive ✓' : 'Drive');
+      }
+    }
+
+    async function connectGoogleDrive() {
+      const input = document.getElementById('google-client-id-input');
+      const cid = input ? input.value.trim() : '';
+      if (!cid) {
+        showToast('Ingresá tu Google Client ID');
+        return;
+      }
+      if (!navigator.onLine) {
+        driveSync.setClientId(cid);
+        driveSync.pendingSync = true;
+        driveSync.saveMeta();
+        updateDriveUI();
+        showToast('Guardado. Se vinculará al tener Wi-Fi');
+        return;
+      }
+
+      driveSync.setClientId(cid);
+      const ok = await driveSync.uploadPayload(appState, true);
+      if (ok) {
+        showToast('☁️ Conectado y sincronizado con Google Drive');
+      } else {
+        showToast('⚠️ Verificá el Client ID o permisos en Google Cloud');
+      }
+    }
+
+    async function forceSyncToDrive(interactive = true) {
+      if (!driveSync.clientId) {
+        showToast('Primero pegá tu Google Client ID');
+        return;
+      }
+      if (!navigator.onLine) {
+        showToast('Sin Wi-Fi: se subirá solo al reconectar');
+        return;
+      }
+      const ok = await driveSync.uploadPayload(appState, interactive);
+      if (ok) {
+        showToast('☁️ Archivo actualizado en Google Drive');
+      }
+    }
+
+    async function pullFromGoogleDrive() {
+      if (!driveSync.clientId) {
+        showToast('Primero pegá tu Google Client ID');
+        return;
+      }
+      if (!navigator.onLine) {
+        showToast('Necesitás Wi-Fi para descargar de Drive');
+        return;
+      }
+      const remoteData = await driveSync.downloadPayload();
+      if (remoteData && Array.isArray(remoteData.products)) {
+        appState = {
+          ...appState,
+          ...remoteData
+        };
+        await dbStore.saveAllState(appState, false);
+        refreshAllViews();
+        updateSaveIndicator('drive_synced');
+        showToast('⬇️ Catálogo y comandas traídos de Drive');
+      } else {
+        showToast('No se encontró respaldo previo en Drive');
+      }
+    }
+
+    function exportBackupJSON() {
+      const blob = new Blob([JSON.stringify(appState, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `chipas_y_chipitas_pos_datos.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('💾 Respaldo JSON descargado');
+    }
+
+    function importBackupJSON(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          if (parsed && Array.isArray(parsed.products)) {
+            appState = { ...appState, ...parsed };
+            await persistState();
+            refreshAllViews();
+            showToast('📂 Datos restaurados correctamente');
+          } else {
+            showToast('Archivo JSON inválido');
+          }
+        } catch (err) {
+          showToast('Error al leer el archivo');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function downloadStandaloneHTML() {
+      const fullHTML = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+      try {
+        const blob = new Blob([fullHTML], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Chipas_y_Chipitas_POS.html';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) {
+        console.warn('Descarga directa bloqueada por iframe:', e);
+      }
+
+      // Mostrar además el modal de respaldo con el código listo para copiar en 1 toque
+      const ta = document.getElementById('raw-html-textarea');
+      const modal = document.getElementById('copy-html-modal');
+      if (ta && modal) {
+        ta.value = fullHTML;
+        modal.classList.remove('hidden');
+      }
+    }
+
+    function copyRawHTMLToClipboard() {
+      const ta = document.getElementById('raw-html-textarea');
+      if (!ta) return;
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      document.execCommand('copy');
+      showToast('📋 ¡Código copiado! Guardalo como index.html');
+    }
+  </script>
+</body>
+</html>
